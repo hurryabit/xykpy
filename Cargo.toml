@@ -1,0 +1,10 @@
+[package]
+name = "xykpy"
+description = "Prototype for a Python type checker written in Rust"
+version = "0.0.1"
+edition = "2024"
+publish = false
+authors = ["Martin Huschenbett <martin.huschenbett@posteo.me>"]
+homepage = "https://github.com/hurryabit/xykpy"
+repository = "https://github.com/hurryabit/xykpy.git"
+license = "MIT"
