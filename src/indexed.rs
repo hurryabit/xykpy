@@ -1,9 +1,9 @@
 // This module is vendored from https://github.com/astral-sh/ruff/blob/ea812d0813faf6e0ed2d39354e85d08f9b857c90/crates/ruff_db/src/parsed.rs#L145.
 use std::sync::Arc;
 
-use ruff_python_ast::visitor::source_order::*;
-use ruff_python_ast::*;
-use ruff_python_parser::Parsed;
+use ast::visitor::source_order::*;
+use ast::*;
+use parser::Parsed;
 
 /// A wrapper around the AST that allows access to AST nodes by index.
 #[derive(Debug)]
