@@ -8,3 +8,8 @@ authors = ["Martin Huschenbett <martin.huschenbett@posteo.me>"]
 homepage = "https://github.com/hurryabit/xykpy"
 repository = "https://github.com/hurryabit/xykpy.git"
 license = "MIT"
+
+[dependencies]
+anyhow = "1.0.98"
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff/", tag = "0.12.0" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff/", tag = "0.12.0" }
