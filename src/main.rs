@@ -1,4 +1,8 @@
 use anyhow::bail;
+use xykpy::{
+    error::Outcome,
+    table::{SymbolTable, block_scope},
+};
 
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<String>>();
@@ -10,12 +14,23 @@ fn main() -> anyhow::Result<()> {
     let parsed = parser::parse_module(&source)?;
     let module = xykpy::indexed::IndexedModule::new(parsed);
 
-    let res = xykpy::table::collect_type_decls(&module.syntax().body);
-    for error in res.errors {
+    let mut symbols = SymbolTable::new();
+    let Outcome {
+        value: scope,
+        errors,
+    } = block_scope(&mut symbols, &module.syntax().body);
+    for error in errors {
         println!("ERROR @ {:?}: {}", error.range, error.message);
     }
-    for (name, decl) in res.inner {
-        println!("DECL @ {:?}: {} = {:?}", decl.name_range, name, decl);
+    for (name, id) in scope.entries() {
+        let symbol = symbols.get(*id);
+        println!(
+            "{kind:?}({name}) @ {range:?}= {symbol:?}",
+            kind = symbol.kind,
+            name = name,
+            range = symbol.name_range,
+            symbol = symbol,
+        );
     }
 
     Ok(())

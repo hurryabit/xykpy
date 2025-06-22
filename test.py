@@ -1,10 +1,4 @@
-class int: ...
-
-
-type num = int
-
-
-class num: ...
-
-
-# type (X, Y) = (int, num)
+x = 1
+x = 2
+x: int
+x: int

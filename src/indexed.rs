@@ -18,7 +18,7 @@ impl IndexedModule {
     pub fn new(parsed: Parsed<ModModule>) -> Arc<Self> {
         let mut visitor = Visitor {
             nodes: Vec::new(),
-            index: 0,
+            index: 1,
         };
 
         let mut inner = Arc::new(IndexedModule {
@@ -26,6 +26,7 @@ impl IndexedModule {
             index: Box::new([]),
         });
 
+        inner.parsed.syntax().node_index.set(0);
         AnyNodeRef::from(inner.parsed.syntax()).visit_source_order(&mut visitor);
 
         let index: Box<[AnyRootNodeRef<'_>]> = visitor.nodes.into_boxed_slice();

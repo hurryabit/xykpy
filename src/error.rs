@@ -87,27 +87,28 @@ impl ErrorsBuilder {
 }
 
 #[must_use]
-pub struct WithErrors<T> {
-    pub inner: T,
+pub struct Outcome<T> {
+    pub value: T,
     pub errors: Errors,
 }
 
-impl<T> WithErrors<T> {
-    pub fn new(inner: T, errors: impl Into<Errors>) -> Self {
-        WithErrors {
-            inner,
-            errors: errors.into(),
-        }
+impl<T> Outcome<T> {
+    pub fn success(value: T) -> Self {
+        let errors = Errors::AllGood;
+        Outcome { value, errors }
+    }
+
+    pub fn mixed(value: T, errors: impl Into<Errors>) -> Self {
+        let errors = errors.into();
+        Outcome { value, errors }
     }
 }
 
-pub trait WithErrorsExt: Sized {
-    fn with_errors(self, errors: impl Into<Errors>) -> WithErrors<Self>;
-}
-
-impl<T> WithErrorsExt for T {
-    fn with_errors(self, errors: impl Into<Errors>) -> WithErrors<Self> {
-        WithErrors::new(self, errors)
+impl<T: Default> Outcome<T> {
+    pub fn failed(errors: impl Into<Errors>) -> Self {
+        let value = T::default();
+        let errors = errors.into();
+        Outcome { value, errors }
     }
 }
 
@@ -121,11 +122,7 @@ impl IntoIterator for Errors {
     type IntoIter = ErrorsIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        let stack = match self {
-            Errors::AllGood => Vec::new(),
-            Errors::Single(error) => Vec::from([Errors::Single(error)]),
-            Errors::Many(vec) => vec,
-        };
+        let stack = Vec::from([self]);
         ErrorsIter { stack }
     }
 }
@@ -146,5 +143,23 @@ impl Iterator for ErrorsIter {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn errors_iter_order() {
+        let mut errors = ErrorsBuilder::new();
+        errors.add(TypeError::new(text_size::TextRange::default(), "A"));
+        errors.add(TypeError::new(text_size::TextRange::default(), "B"));
+        let messages: Vec<_> = errors
+            .build()
+            .into_iter()
+            .map(|error| error.message)
+            .collect();
+        assert_eq!(messages, &["A", "B"]);
     }
 }
