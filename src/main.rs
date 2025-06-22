@@ -1,8 +1,5 @@
 use anyhow::bail;
-use xykpy::{
-    error::Outcome,
-    table::{SymbolTable, block_scope},
-};
+use xykpy::resolver::Resolver;
 
 fn main() -> anyhow::Result<()> {
     let args = std::env::args().collect::<Vec<String>>();
@@ -14,24 +11,24 @@ fn main() -> anyhow::Result<()> {
     let parsed = parser::parse_module(&source)?;
     let module = xykpy::indexed::IndexedModule::new(parsed);
 
-    let mut symbols = SymbolTable::new();
-    let Outcome {
-        value: scope,
-        errors,
-    } = block_scope(&mut symbols, &module.syntax().body);
-    for error in errors {
+    let resolver = Resolver::new(module.syntax());
+    let outcome = resolver.run();
+    for error in outcome.errors {
         println!("ERROR @ {:?}: {}", error.range, error.message);
     }
-    for (name, id) in scope.entries() {
-        let symbol = symbols.get(*id);
-        println!(
-            "{kind:?}({name}) @ {range:?}= {symbol:?}",
-            kind = symbol.kind,
-            name = name,
-            range = symbol.name_range,
-            symbol = symbol,
-        );
-    }
+
+    println!("{:#?}", outcome.value);
+
+    // for (name, id) in scope.entries() {
+    //     let symbol = symbols.get(*id);
+    //     println!(
+    //         "{kind:?}({name}) @ {range:?}= {symbol:?}",
+    //         kind = symbol.kind,
+    //         name = name,
+    //         range = symbol.name_range,
+    //         symbol = symbol,
+    //     );
+    // }
 
     Ok(())
 }
