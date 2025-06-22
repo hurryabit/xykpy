@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use std::collections::HashMap;
 
+use ast::HasNodeIndex;
 use text_size::Ranged;
 
 use crate::error::{Errors, ErrorsBuilder, Outcome, TypeError};
@@ -11,16 +12,7 @@ pub enum SymbolKind {
     Alias,
     Variable,
     Function,
-}
-
-impl SymbolKind {
-    fn is_type(self) -> bool {
-        use SymbolKind::*;
-        match self {
-            Alias | Class => true,
-            Function | Variable => false,
-        }
-    }
+    Nonlocal,
 }
 
 impl std::fmt::Display for SymbolKind {
@@ -30,6 +22,7 @@ impl std::fmt::Display for SymbolKind {
             SymbolKind::Alias => "type alias",
             SymbolKind::Variable => "variable",
             SymbolKind::Function => "function",
+            SymbolKind::Nonlocal => "nonlocal",
         };
         f.write_str(text)
     }
@@ -39,13 +32,20 @@ fn no_node_index() -> ast::NodeIndex {
     ast::AtomicNodeIndex::dummy().load()
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Symbol {
     pub kind: SymbolKind,
     pub name: ast::NodeIndex,
     pub name_range: text_size::TextRange,
     pub decl: ast::NodeIndex,
     pub defn: ast::NodeIndex,
+}
+
+static_assertions::const_assert_eq!(std::mem::size_of::<Symbol>(), 24);
+
+enum DeclOrDefn<T> {
+    Decl(T),
+    Defn(T),
 }
 
 impl Symbol {
@@ -59,18 +59,40 @@ impl Symbol {
 
     // Returns whether the two symbols conflict.
     fn merge(&self, later: &Symbol) -> (Option<Symbol>, bool) {
-        if self.kind == SymbolKind::Variable && later.kind == SymbolKind::Variable {
-            let conflict = self.is_decl() && later.is_decl();
-            let decl = if self.is_decl() || !later.is_decl() {
-                self
-            } else {
-                later
-            };
-            let defn = ast::NodeIndex::min(self.defn, later.defn);
-            let merged = Symbol { defn, ..*decl };
-            (Some(merged), conflict)
-        } else {
-            (None, true)
+        use SymbolKind::*;
+        match (self.kind, later.kind) {
+            (Variable, Variable) => {
+                let conflict = self.is_decl() && later.is_decl();
+                let decl = if self.is_decl() || !later.is_decl() {
+                    self
+                } else {
+                    later
+                };
+                let defn = ast::NodeIndex::min(self.defn, later.defn);
+                let merged = Symbol { defn, ..*decl };
+                (Some(merged), conflict)
+            }
+            (Variable, Nonlocal) => (Some(*later), self.is_decl()),
+            (Nonlocal, Variable) => (None, self.is_decl()),
+            _ => (None, true),
+        }
+    }
+
+    fn make(
+        kind: SymbolKind,
+        name: impl HasNodeIndex + Ranged,
+        decl_defn: DeclOrDefn<impl HasNodeIndex>,
+    ) -> Self {
+        let (decl, defn) = match decl_defn {
+            DeclOrDefn::Decl(decl) => (decl.node_index().load(), no_node_index()),
+            DeclOrDefn::Defn(defn) => (no_node_index(), defn.node_index().load()),
+        };
+        Self {
+            kind,
+            name: name.node_index().load(),
+            name_range: name.range(),
+            decl,
+            defn,
         }
     }
 }
@@ -155,30 +177,19 @@ pub fn block_scope<'m>(
     symbols: &mut SymbolTable,
     stmts: &'m Vec<ast::Stmt>,
 ) -> Outcome<ScopeTable<'m>> {
+    use DeclOrDefn::*;
     let mut scope = ScopeTable::new();
     let mut errors = ErrorsBuilder::new();
     for stmt in stmts {
         match stmt {
             ast::Stmt::ClassDef(class_def) => {
                 let name = &class_def.name;
-                let symbol = Symbol {
-                    kind: SymbolKind::Class,
-                    name: name.node_index.load(),
-                    name_range: name.range,
-                    decl: class_def.node_index.load(),
-                    defn: class_def.node_index.load(),
-                };
+                let symbol = Symbol::make(SymbolKind::Class, name, Decl(class_def));
                 errors.add(scope.insert(symbols, &name.id, symbol));
             }
             ast::Stmt::TypeAlias(alias_def) => match &*alias_def.name {
                 ast::Expr::Name(name) => {
-                    let symbol = Symbol {
-                        kind: SymbolKind::Alias,
-                        name: name.node_index.load(),
-                        name_range: name.range,
-                        decl: alias_def.node_index.load(),
-                        defn: alias_def.node_index.load(),
-                    };
+                    let symbol = Symbol::make(SymbolKind::Alias, name, Decl(alias_def));
                     errors.add(scope.insert(symbols, &name.id, symbol));
                 }
                 _ => {
@@ -188,13 +199,7 @@ pub fn block_scope<'m>(
             ast::Stmt::Assign(assign) => match &assign.targets[..] {
                 [target] => match target {
                     ast::Expr::Name(name) => {
-                        let symbol = Symbol {
-                            kind: SymbolKind::Variable,
-                            name: name.node_index.load(),
-                            name_range: name.range,
-                            decl: no_node_index(),
-                            defn: assign.node_index.load(),
-                        };
+                        let symbol = Symbol::make(SymbolKind::Variable, name, Defn(assign));
                         errors.add(scope.insert(symbols, &name.id, symbol));
                     }
                     _ => errors.add(TypeError::new(
@@ -212,17 +217,10 @@ pub fn block_scope<'m>(
             },
             ast::Stmt::AnnAssign(assign) => match &*assign.target {
                 ast::Expr::Name(name) => {
-                    let symbol = Symbol {
-                        kind: SymbolKind::Variable,
-                        name: name.node_index.load(),
-                        name_range: name.range,
-                        decl: assign.node_index.load(),
-                        defn: if assign.value.is_some() {
-                            assign.node_index.load()
-                        } else {
-                            no_node_index()
-                        },
-                    };
+                    let mut symbol = Symbol::make(SymbolKind::Variable, name, Decl(assign));
+                    if assign.value.is_some() {
+                        symbol.defn = assign.node_index.load();
+                    }
                     errors.add(scope.insert(symbols, &name.id, symbol));
                 }
                 _ => errors.add(TypeError::new(
@@ -232,14 +230,14 @@ pub fn block_scope<'m>(
             },
             ast::Stmt::FunctionDef(func_def) => {
                 let name = &func_def.name;
-                let symbol = Symbol {
-                    kind: SymbolKind::Function,
-                    name: name.node_index.load(),
-                    name_range: name.range,
-                    decl: func_def.node_index.load(),
-                    defn: func_def.node_index.load(),
-                };
+                let symbol = Symbol::make(SymbolKind::Function, name, Decl(func_def));
                 errors.add(scope.insert(symbols, &name.id, symbol));
+            }
+            ast::Stmt::Nonlocal(nonlocal) => {
+                for name in &nonlocal.names {
+                    let symbol = Symbol::make(SymbolKind::Nonlocal, name, Decl(nonlocal));
+                    errors.add(scope.insert(symbols, &name.id, symbol));
+                }
             }
             _ => {}
         }

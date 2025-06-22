@@ -13,4 +13,5 @@ license = "MIT"
 anyhow = "1.0.98"
 ast = { git = "https://github.com/astral-sh/ruff/", package = "ruff_python_ast", tag = "0.12.0" }
 parser = { git = "https://github.com/astral-sh/ruff/", package = "ruff_python_parser", tag = "0.12.0" }
+static_assertions = "1.1.0"
 text_size = { git = "https://github.com/astral-sh/ruff/", package = "ruff_text_size", tag = "0.12.0" }

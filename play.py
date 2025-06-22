@@ -1,5 +1,6 @@
-def f[T](T: T) -> T:
-    return T
+def f():
+    x = 1
 
-
-print(f(1))
+    def g():
+        nonlocal x
+        x = 2
